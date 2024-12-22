@@ -134,7 +134,7 @@ class DatabaseApp(QtWidgets.QMainWindow):
 
     def go_to_database(self):
         try:
-            if self.connection:
+            if self.connection: 
                 self.connection.close()
             self.connection = psycopg2.connect(
                 dbname=DB_NAME,
