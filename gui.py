@@ -69,6 +69,13 @@ class DatabaseApp(QtWidgets.QMainWindow):
         except Exception as e:
             self.show_error(f"Ошибка при загрузке хранимых процедур: {e}")
 
+    def check_tables(self):
+        self.cursor.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")
+        tables = self.cursor.fetchall()
+        print("Существующие таблицы в базе данных:")
+        for table in tables:
+            print(table[0])  # Выводим имя таблицы
+
     def create_database(self):
         self.connect_to_server()
         if not self.cursor:
@@ -79,6 +86,7 @@ class DatabaseApp(QtWidgets.QMainWindow):
             self.cursor.execute(f"CREATE DATABASE {DB_NAME};")
             self.connect_to_database()
             self.create_tables()
+            self.check_tables()
             self.load_procedures()
             self.show_message("Успех", f"База данных {DB_NAME} успешно создана.")
         except Exception as e:
@@ -135,6 +143,8 @@ class DatabaseApp(QtWidgets.QMainWindow):
                 host=DB_HOST
             )
             self.cursor = self.connection.cursor()
+            self.load_procedures()
+            self.create_tables()
             self.show_tables_window()
         except Exception as e:
             self.show_error(f"Ошибка при подключении к базе данных: {e}")
@@ -190,13 +200,38 @@ class TablesWindow(QtWidgets.QMainWindow):
         self.clear_table_button.clicked.connect(self.clear_table)
         self.clear_all_tables_button.clicked.connect(self.clear_all_tables)
 
+    def check_tables(self):
+        self.cursor.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")
+        tables = self.cursor.fetchall()
+        print("Существующие таблицы в базе данных:")
+        for table in tables:
+            print(table[0])  # Выводим имя таблицы
+
     def load_tables(self):
         try:
             self.tables_list.clear()
+
+            # Запрос для получения таблиц из базы данных
+            self.cursor.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';")
+            all_tables = self.cursor.fetchall()
+
+            # Выводим все таблицы в базе данных для сравнения
+            print("Все таблицы в базе данных:")
+            for table in all_tables:
+                print(table[0])  # Выводим имя таблицы
+
+            # Загружаем таблицы через хранимую процедуру
             self.cursor.execute("SELECT * FROM load_tables_proc();")
             tables = self.cursor.fetchall()
+
+            # Выводим таблицы, загруженные через хранимую процедуру
+            print("Загруженные таблицы через процедуру:")
+            for table in tables:
+                print(table[0])
+
             for table in tables:
                 self.tables_list.addItem(table[0])
+            self.check_tables()
         except Exception as e:
             self.show_error(f"Ошибка при загрузке таблиц: {e}")
 

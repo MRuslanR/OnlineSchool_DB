@@ -20,17 +20,17 @@ BEGIN
 END;
 $$;
 
--- Функция для загрузки таблиц
 CREATE OR REPLACE FUNCTION load_tables_proc()
 RETURNS TABLE(table_name TEXT) AS
 $$
 BEGIN
     RETURN QUERY
-    SELECT table_name
-    FROM information_schema.tables
-    WHERE table_schema = 'public';
+    SELECT t.table_name::TEXT
+    FROM information_schema.tables t
+    WHERE t.table_schema = 'public';
 END;
 $$ LANGUAGE plpgsql;
+
 
 -- Процедура для очистки таблицы
 CREATE OR REPLACE PROCEDURE clear_table_proc(table_name TEXT)
