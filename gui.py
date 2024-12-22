@@ -1,5 +1,5 @@
 import psycopg2
-from PyQt5 import QtWidgets, QtGui, QtCore
+from PyQt5 import QtWidgets, QtCore
 import sys
 
 DB_NAME = "online_school"
@@ -52,25 +52,47 @@ class DatabaseApp(QtWidgets.QMainWindow):
             )
             self.connection.autocommit = True
             self.cursor = self.connection.cursor()
+            self.load_procedures()
         except Exception as e:
             self.show_error(f"Ошибка при подключении к серверу: {e}")
+
+    def load_procedures(self):
+        try:
+            with open('procedures.sql', 'r', encoding='utf-8') as file:
+                sql = file.read()
+                self.cursor.execute(sql)
+        except Exception as e:
+            self.show_error(f"Ошибка при загрузке хранимых процедур: {e}")
 
     def create_database(self):
         self.connect_to_server()
         if not self.cursor:
             return
         try:
+            # Создание базы данных выполняется напрямую в Python, а не через хранимую процедуру
             self.cursor.execute(f"DROP DATABASE IF EXISTS {DB_NAME};")
             self.cursor.execute(f"CREATE DATABASE {DB_NAME};")
+            self.create_tables()
             self.show_message("Успех", f"База данных {DB_NAME} успешно создана.")
         except Exception as e:
             self.show_error(f"Ошибка при создании базы данных: {e}")
+
+    def create_tables(self):
+        try:
+            with open('setup_db.sql') as f:
+                sql_commands = f.read()
+            self.cursor.execute(sql_commands)
+            print('Таблицы успешно созданы!')
+
+        except Exception as e:
+            print('Возникла ошибка при создании таблиц:', e)
 
     def delete_database(self):
         self.connect_to_server()
         if not self.cursor:
             return
         try:
+            # Удаление базы данных выполняется напрямую в Python, а не через хранимую процедуру
             self.cursor.execute(f"""
                 SELECT pg_terminate_backend(pg_stat_activity.pid)
                 FROM pg_stat_activity
@@ -150,7 +172,7 @@ class TablesWindow(QtWidgets.QMainWindow):
     def load_tables(self):
         try:
             self.tables_list.clear()
-            self.cursor.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")
+            self.cursor.execute("SELECT * FROM load_tables_proc();")
             tables = self.cursor.fetchall()
             for table in tables:
                 self.tables_list.addItem(table[0])
@@ -178,7 +200,7 @@ class TablesWindow(QtWidgets.QMainWindow):
             return
         try:
             table_name = selected_table.text()
-            self.cursor.execute(f"TRUNCATE TABLE {table_name} RESTART IDENTITY")
+            self.cursor.execute(f"CALL clear_table_proc('{table_name}');")
             self.show_message("Успех", f"Таблица {table_name} успешно очищена.")
         except Exception as e:
             self.show_error(f"Ошибка при очистке таблицы: {e}")
@@ -188,7 +210,7 @@ class TablesWindow(QtWidgets.QMainWindow):
             self.cursor.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")
             tables = self.cursor.fetchall()
             for table in tables:
-                self.cursor.execute(f"TRUNCATE TABLE {table[0]} RESTART IDENTITY")
+                self.cursor.execute(f"CALL clear_table_proc('{table[0]}');")
             self.show_message("Успех", "Все таблицы успешно очищены.")
         except Exception as e:
             self.show_error(f"Ошибка при очистке всех таблиц: {e}")
