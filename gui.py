@@ -189,7 +189,7 @@ class TablesWindow(QtWidgets.QMainWindow):
         self.clear_table_button.clicked.connect(self.clear_table)
         self.clear_all_tables_button.clicked.connect(self.clear_all_tables)
 
-        self.load_tables()  # Загружаем таблицы сразу при старте
+        self.load_tables()
 
     def load_tables(self):
         try:
@@ -232,11 +232,7 @@ class TablesWindow(QtWidgets.QMainWindow):
 
     def clear_all_tables(self):
         try:
-            self.cursor.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")
-            tables = self.cursor.fetchall()
-            for table in tables:
-                self.cursor.execute(f"CALL clear_table_proc('{table[0]}');")
-            self.show_message("Успех", "Все таблицы успешно очищены.")
+            self.cursor.execute('CALL clear_all_tables_proc();')
         except Exception as e:
             self.show_error(f"Ошибка при очистке всех таблиц: {e}")
 
@@ -253,7 +249,6 @@ class TablesWindow(QtWidgets.QMainWindow):
         error_box.setText(message)
         error_box.exec_()
 
-
 class TableContentWindow(QtWidgets.QMainWindow):
     def __init__(self, connection, table_name, parent_window):
         super().__init__()
@@ -261,7 +256,7 @@ class TableContentWindow(QtWidgets.QMainWindow):
         self.cursor = connection.cursor()
         self.table_name = table_name
         self.parent_window = parent_window
-        self.primary_key_column = None  # Для хранения имени первичного ключа
+        self.primary_key_column = None
         self.initUI()
 
     def initUI(self):
@@ -272,7 +267,6 @@ class TableContentWindow(QtWidgets.QMainWindow):
         self.setCentralWidget(self.central_widget)
         self.layout = QtWidgets.QVBoxLayout(self.central_widget)
 
-        # Виджет поиска
         self.search_layout = QtWidgets.QHBoxLayout()
         self.search_field = QtWidgets.QLineEdit(self)
         self.search_button = QtWidgets.QPushButton("Поиск", self)
@@ -321,22 +315,10 @@ class TableContentWindow(QtWidgets.QMainWindow):
                 for col_idx, value in enumerate(row):
                     self.table_view.setItem(row_idx, col_idx, QtWidgets.QTableWidgetItem(str(value)))
 
-            # Заполняем выпадающий список колонок для поиска
             self.search_column_selector.clear()
             self.search_column_selector.addItems(columns)
 
-            # Получаем первичный ключ таблицы
-            self.cursor.execute(
-                f"""
-                SELECT a.attname
-                FROM   pg_index i
-                JOIN   pg_attribute a ON a.attrelid = i.indrelid
-                                       AND a.attnum = ANY(i.indkey)
-                WHERE  i.indrelid = %s::regclass
-                AND    i.indisprimary;
-                """,
-                (self.table_name,)
-            )
+            self.cursor.execute("SELECT get_primary_key_column(%s)", (self.table_name,))
             result = self.cursor.fetchone()
             self.primary_key_column = result[0] if result else None
 
@@ -372,8 +354,8 @@ class TableContentWindow(QtWidgets.QMainWindow):
             return
 
         try:
-            query = f"DELETE FROM {self.table_name} WHERE {search_column}::text ILIKE %s"
-            self.cursor.execute(query, (f"%{search_text}%",))
+            self.cursor.execute("CALL delete_records_by_condition_proc(%s, %s, %s)",
+                                (self.table_name, search_column, search_text))
             self.connection.commit()
 
             self.load_table_content()
@@ -394,9 +376,8 @@ class TableContentWindow(QtWidgets.QMainWindow):
         try:
             selected_row = selected_items[0].row()
             primary_key_value = self.table_view.item(selected_row, 0).text()
-
-            query = f"DELETE FROM {self.table_name} WHERE {self.primary_key_column} = %s"
-            self.cursor.execute(query, (primary_key_value,))
+            self.cursor.execute("CALL delete_record_by_pk_proc(%s, %s, %s)",
+                                (self.table_name, self.primary_key_column, primary_key_value))
             self.connection.commit()
 
             self.load_table_content()
@@ -441,12 +422,10 @@ class AddRecordDialog(QtWidgets.QDialog):
 
         self.fields = {}
 
-        # Получение колонок, исключая timestamp
-        self.cursor.execute("""
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_name = %s AND data_type NOT LIKE 'timestamp%%';
-        """, (self.table_name,))
+        # Вызов функции
+        self.cursor.callproc('get_columns', (self.table_name,))
+
+        # Извлекаем результат выполнения функции
         columns = [row[0] for row in self.cursor.fetchall()]
 
         for column in columns:
@@ -485,7 +464,6 @@ class AddRecordDialog(QtWidgets.QDialog):
         error_box.setWindowTitle("Ошибка")
         error_box.setText(message)
         error_box.exec_()
-
 
 
 if __name__ == "__main__":

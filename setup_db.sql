@@ -1,7 +1,8 @@
 -- Создание таблицы Users
 CREATE TABLE Users (
     user_id SERIAL PRIMARY KEY,
-    username VARCHAR(50) NOT NULL UNIQUE,
+    name VARCHAR(50) NOT NULL UNIQUE,
+    surname VARCHAR(50) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL,
     role VARCHAR(20) NOT NULL CHECK (role IN ('student', 'instructor', 'admin')),
     email VARCHAR(100) NOT NULL UNIQUE,
@@ -12,9 +13,8 @@ CREATE TABLE Users (
 CREATE TABLE Courses (
     course_id SERIAL PRIMARY KEY,
     title VARCHAR(100) NOT NULL,
-    description TEXT,
     instructor_id INTEGER NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    duration INTERVAL NOT NULL,
     FOREIGN KEY (instructor_id) REFERENCES Users(user_id) ON DELETE CASCADE
 );
 
@@ -37,9 +37,6 @@ CREATE TABLE Payments (
     total_amount NUMERIC(10, 2) DEFAULT 0,
     FOREIGN KEY (enrollment_id) REFERENCES Enrollments(enrollment_id) ON DELETE CASCADE
 );
-
--- Создание индекса на поле username в таблице Users
-CREATE INDEX idx_users_username ON Users(username);
 
 -- Создание индекса на поле title в таблице Courses
 CREATE INDEX idx_courses_title ON Courses(title);

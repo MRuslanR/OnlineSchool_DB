@@ -1,6 +1,3 @@
--- procedures.sql
-
--- Процедура для создания базы данных
 CREATE OR REPLACE PROCEDURE create_database_proc()
 LANGUAGE plpgsql
 AS $$
@@ -10,7 +7,6 @@ BEGIN
 END;
 $$;
 
--- Процедура для удаления базы данных
 CREATE OR REPLACE PROCEDURE delete_database_proc()
 LANGUAGE plpgsql
 AS $$
@@ -31,13 +27,10 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-
--- Процедура для очистки таблицы с CASCADE
 CREATE OR REPLACE PROCEDURE clear_table_proc(table_name TEXT)
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    -- Сначала очищаем все таблицы, которые ссылаются на целевую таблицу
     EXECUTE 'TRUNCATE TABLE ' || quote_ident(table_name) || ' RESTART IDENTITY CASCADE';
 END;
 $$;
@@ -52,7 +45,6 @@ DECLARE
     query TEXT;
     value_placeholders TEXT;
 BEGIN
-    -- Создаем строки с именами колонок и заполнителями для значений
     query := format(
         'INSERT INTO %I (%s) VALUES (%s)',
         table_name,
@@ -63,7 +55,6 @@ BEGIN
         )
     );
 
-    -- Выполняем динамический SQL
     EXECUTE query;
 END;
 $$;
@@ -74,8 +65,6 @@ RETURNS TABLE(column_name TEXT) LANGUAGE sql AS $$
     FROM information_schema.columns
     WHERE table_name = table_name AND data_type NOT LIKE 'timestamp%';
 $$;
-
-
 
 CREATE OR REPLACE PROCEDURE delete_records_by_condition(table_name TEXT, column_name TEXT, condition TEXT)
 LANGUAGE plpgsql AS $$
@@ -94,9 +83,84 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION get_columns_excluding_timestamp(table_name TEXT)
-RETURNS TABLE(column_name TEXT) LANGUAGE sql AS $$
-    SELECT column_name
+CREATE OR REPLACE PROCEDURE clear_all_tables_proc()
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    table_record RECORD;
+BEGIN
+    FOR table_record IN
+        SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'
+    LOOP
+        EXECUTE 'CALL clear_table_proc(' || quote_literal(table_record.table_name) || ')';
+    END LOOP;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION get_primary_key_column(
+    table_name TEXT
+) RETURNS TEXT AS $$
+DECLARE
+    primary_key_column TEXT;
+BEGIN
+    SELECT a.attname
+    INTO primary_key_column
+    FROM pg_index i
+    JOIN pg_attribute a ON a.attrelid = i.indrelid
+                        AND a.attnum = ANY(i.indkey)
+    WHERE i.indrelid = table_name::regclass
+      AND i.indisprimary;
+
+    RETURN primary_key_column;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE PROCEDURE delete_records_by_condition_proc(
+    table_name TEXT,
+    search_column TEXT,
+    search_value TEXT
+)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    query TEXT;
+BEGIN
+    query := format(
+        'DELETE FROM %I WHERE %I::text ILIKE %L',
+        table_name, search_column, '%' || search_value || '%'
+    );
+
+    EXECUTE query;
+END;
+$$;
+
+CREATE OR REPLACE PROCEDURE delete_record_by_pk_proc(
+    table_name TEXT,
+    pk_column TEXT,
+    pk_value TEXT
+)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    query TEXT;
+BEGIN
+    query := format(
+        'DELETE FROM %I WHERE %I = %L',
+        table_name, pk_column, pk_value
+    );
+
+    EXECUTE query;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION get_columns(p_table_name text)
+RETURNS SETOF text
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT column_name::text
     FROM information_schema.columns
-    WHERE table_name = table_name AND data_type NOT LIKE 'timestamp%';
+    WHERE table_name = p_table_name AND data_type NOT LIKE 'timestamp%';
+END;
 $$;
