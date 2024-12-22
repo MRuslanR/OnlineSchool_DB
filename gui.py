@@ -38,7 +38,7 @@ class DatabaseApp(QtWidgets.QMainWindow):
 
         self.create_db_button.clicked.connect(self.create_database)
         self.delete_db_button.clicked.connect(self.delete_database)
-        self.connect_db_button.clicked.connect(self.connect_to_database)
+        self.connect_db_button.clicked.connect(self.go_to_database)
 
     def connect_to_server(self):
         try:
@@ -58,9 +58,14 @@ class DatabaseApp(QtWidgets.QMainWindow):
 
     def load_procedures(self):
         try:
+            self.cursor.execute("SELECT current_database();")
+            current_db = self.cursor.fetchone()[0]
+            print(f"Процедуры загружаются в базу данных: {current_db}")
+
             with open('procedures.sql', 'r', encoding='utf-8') as file:
                 sql = file.read()
                 self.cursor.execute(sql)
+                print("Процедуры успешно загружены!")
         except Exception as e:
             self.show_error(f"Ошибка при загрузке хранимых процедур: {e}")
 
@@ -72,7 +77,9 @@ class DatabaseApp(QtWidgets.QMainWindow):
             # Создание базы данных выполняется напрямую в Python, а не через хранимую процедуру
             self.cursor.execute(f"DROP DATABASE IF EXISTS {DB_NAME};")
             self.cursor.execute(f"CREATE DATABASE {DB_NAME};")
+            self.connect_to_database()
             self.create_tables()
+            self.load_procedures()
             self.show_message("Успех", f"База данных {DB_NAME} успешно создана.")
         except Exception as e:
             self.show_error(f"Ошибка при создании базы данных: {e}")
@@ -104,6 +111,20 @@ class DatabaseApp(QtWidgets.QMainWindow):
             self.show_error(f"Ошибка при удалении базы данных: {e}")
 
     def connect_to_database(self):
+        try:
+            if self.connection:
+                self.connection.close()
+            self.connection = psycopg2.connect(
+                dbname=DB_NAME,
+                user=DB_USER,
+                password=DB_PASSWORD,
+                host=DB_HOST
+            )
+            self.cursor = self.connection.cursor()
+        except Exception as e:
+            self.show_error(f"Ошибка при подключении к базе данных: {e}")
+
+    def go_to_database(self):
         try:
             if self.connection:
                 self.connection.close()
