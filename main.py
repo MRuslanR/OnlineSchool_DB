@@ -2,7 +2,7 @@ import psycopg2
 
 # Параметры подключения к базе данных
 DB_NAME = "online_school"
-DB_USER = "postgres"  # Замените на вашего пользователя
+DB_USER = "user_name"  # Замените на вашего пользователя
 DB_PASSWORD = "password"  # Замените на ваш пароль
 DB_HOST = "localhost"
 DB_PORT = "5432"
