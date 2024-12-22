@@ -52,7 +52,6 @@ class DatabaseApp(QtWidgets.QMainWindow):
             )
             self.connection.autocommit = True
             self.cursor = self.connection.cursor()
-            self.load_procedures()
         except Exception as e:
             self.show_error(f"Ошибка при подключении к серверу: {e}")
 
@@ -178,42 +177,25 @@ class TablesWindow(QtWidgets.QMainWindow):
         self.tables_list = QtWidgets.QListWidget()
         self.layout.addWidget(self.tables_list)
 
-        self.load_tables_button = QtWidgets.QPushButton("Загрузить таблицы")
         self.view_table_button = QtWidgets.QPushButton("Просмотреть содержимое")
         self.clear_table_button = QtWidgets.QPushButton("Очистить таблицу")
         self.clear_all_tables_button = QtWidgets.QPushButton("Очистить все таблицы")
 
-        self.layout.addWidget(self.load_tables_button)
         self.layout.addWidget(self.view_table_button)
         self.layout.addWidget(self.clear_table_button)
         self.layout.addWidget(self.clear_all_tables_button)
 
-        self.load_tables_button.clicked.connect(self.load_tables)
         self.view_table_button.clicked.connect(self.view_table_content)
         self.clear_table_button.clicked.connect(self.clear_table)
         self.clear_all_tables_button.clicked.connect(self.clear_all_tables)
 
+        self.load_tables()  # Загружаем таблицы сразу при старте
+
     def load_tables(self):
         try:
             self.tables_list.clear()
-
-            # Запрос для получения таблиц из базы данных
-            self.cursor.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';")
-            all_tables = self.cursor.fetchall()
-
-            # Выводим все таблицы в базе данных для сравнения
-            print("Все таблицы в базе данных:")
-            for table in all_tables:
-                print(table[0])  # Выводим имя таблицы
-
-            # Загружаем таблицы через хранимую процедуру
             self.cursor.execute("SELECT * FROM load_tables_proc();")
             tables = self.cursor.fetchall()
-
-            # Выводим таблицы, загруженные через хранимую процедуру
-            print("Загруженные таблицы через процедуру:")
-            for table in tables:
-                print(table[0])
 
             for table in tables:
                 self.tables_list.addItem(table[0])
@@ -227,12 +209,14 @@ class TablesWindow(QtWidgets.QMainWindow):
             return
         try:
             table_name = selected_table.text()
-            self.cursor.execute(f"SELECT * FROM {table_name}")
-            rows = self.cursor.fetchall()
-            content = '\n'.join(map(str, rows))
-            self.show_message(f"Содержимое таблицы {table_name}", content)
+            self.open_table_content_window(table_name)
         except Exception as e:
             self.show_error(f"Ошибка при просмотре таблицы: {e}")
+
+    def open_table_content_window(self, table_name):
+        self.table_content_window = TableContentWindow(self.connection, table_name, self)  # Передаем TablesWindow
+        self.table_content_window.show()
+        self.close()  # Закрываем текущий виджет при открытии нового
 
     def clear_table(self):
         selected_table = self.tables_list.currentItem()
@@ -268,6 +252,128 @@ class TablesWindow(QtWidgets.QMainWindow):
         error_box.setWindowTitle("Ошибка")
         error_box.setText(message)
         error_box.exec_()
+
+
+class TableContentWindow(QtWidgets.QMainWindow):
+    def __init__(self, connection, table_name, parent_window):
+        super().__init__()
+        self.connection = connection
+        self.cursor = connection.cursor()
+        self.table_name = table_name
+        self.parent_window = parent_window  # Сохраняем ссылку на родительский виджет
+        self.initUI()
+
+    def initUI(self):
+        self.setWindowTitle(f"Содержимое таблицы: {self.table_name}")
+        self.setGeometry(100, 100, 800, 600)
+
+        self.central_widget = QtWidgets.QWidget()
+        self.setCentralWidget(self.central_widget)
+        self.layout = QtWidgets.QVBoxLayout(self.central_widget)
+
+        self.table_view = QtWidgets.QTableWidget(self)
+        self.layout.addWidget(self.table_view)
+
+        self.load_table_content()
+
+        # Кнопки
+        self.back_button = QtWidgets.QPushButton("Назад к таблицам")
+        self.add_record_button = QtWidgets.QPushButton("Добавить запись")
+
+        self.layout.addWidget(self.back_button)
+        self.layout.addWidget(self.add_record_button)
+
+        self.back_button.clicked.connect(self.back_to_tables)
+        self.add_record_button.clicked.connect(self.add_record)
+
+    def load_table_content(self):
+        try:
+            self.cursor.execute(f"SELECT * FROM {self.table_name}")
+            rows = self.cursor.fetchall()
+            columns = [desc[0] for desc in self.cursor.description]
+
+            self.table_view.setColumnCount(len(columns))
+            self.table_view.setRowCount(len(rows))
+            self.table_view.setHorizontalHeaderLabels(columns)
+
+            for row_idx, row in enumerate(rows):
+                for col_idx, value in enumerate(row):
+                    self.table_view.setItem(row_idx, col_idx, QtWidgets.QTableWidgetItem(str(value)))
+
+        except Exception as e:
+            self.show_error(f"Ошибка при загрузке содержимого таблицы: {e}")
+
+    def add_record(self):
+        dialog = AddRecordDialog(self, self.table_name)
+        dialog.exec_()
+
+    def back_to_tables(self):
+        self.parent_window.show()  # Показываем основной виджет
+        self.close()  # Закрываем текущий виджет
+
+    def show_message(self, title, message):
+        msg_box = QtWidgets.QMessageBox(self)
+        msg_box.setWindowTitle(title)
+        msg_box.setText(message)
+        msg_box.exec_()
+
+    def show_error(self, message):
+        error_box = QtWidgets.QMessageBox(self)
+        error_box.setIcon(QtWidgets.QMessageBox.Critical)
+        error_box.setWindowTitle("Ошибка")
+        error_box.setText(message)
+        error_box.exec_()
+
+
+class AddRecordDialog(QtWidgets.QDialog):
+    def __init__(self, parent, table_name):
+        super().__init__(parent)
+        self.table_name = table_name
+        self.cursor = parent.cursor
+        self.initUI()
+
+    def initUI(self):
+        self.setWindowTitle(f"Добавить запись в таблицу: {self.table_name}")
+        self.setGeometry(100, 100, 400, 300)
+
+        self.layout = QtWidgets.QFormLayout(self)
+
+        self.fields = {}
+
+        # Получаем описание колонок таблицы
+        self.cursor.execute(f"SELECT * FROM {self.table_name} LIMIT 1;")
+        columns = [desc[0] for desc in self.cursor.description]
+
+        for column in columns:
+            self.fields[column] = QtWidgets.QLineEdit(self)
+            self.layout.addRow(f"{column}: ", self.fields[column])
+
+        self.submit_button = QtWidgets.QPushButton("Добавить", self)
+        self.cancel_button = QtWidgets.QPushButton("Отмена", self)
+
+        self.layout.addRow(self.submit_button, self.cancel_button)
+
+        self.submit_button.clicked.connect(self.submit_record)
+        self.cancel_button.clicked.connect(self.reject)
+
+    def submit_record(self):
+        try:
+            values = [self.fields[column].text() for column in self.fields]
+            query = f"INSERT INTO {self.table_name} ({', '.join(self.fields.keys())}) VALUES ({', '.join(['%s'] * len(values))})"
+            self.cursor.execute(query, values)
+            self.accept()
+            self.parent().load_table_content()
+            self.parent().show_message("Успех", "Запись успешно добавлена!")
+        except Exception as e:
+            self.show_error(f"Ошибка при добавлении записи: {e}")
+
+    def show_error(self, message):
+        error_box = QtWidgets.QMessageBox(self)
+        error_box.setIcon(QtWidgets.QMessageBox.Critical)
+        error_box.setWindowTitle("Ошибка")
+        error_box.setText(message)
+        error_box.exec_()
+
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
