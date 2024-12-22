@@ -32,11 +32,12 @@ END;
 $$ LANGUAGE plpgsql;
 
 
--- Процедура для очистки таблицы
+-- Процедура для очистки таблицы с CASCADE
 CREATE OR REPLACE PROCEDURE clear_table_proc(table_name TEXT)
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    EXECUTE 'TRUNCATE TABLE ' || quote_ident(table_name) || ' RESTART IDENTITY';
+    -- Сначала очищаем все таблицы, которые ссылаются на целевую таблицу
+    EXECUTE 'TRUNCATE TABLE ' || quote_ident(table_name) || ' RESTART IDENTITY CASCADE';
 END;
 $$;

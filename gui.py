@@ -344,9 +344,11 @@ class AddRecordDialog(QtWidgets.QDialog):
         self.cursor.execute(f"SELECT * FROM {self.table_name} LIMIT 1;")
         columns = [desc[0] for desc in self.cursor.description]
 
+        # Выводим поля для ввода, исключая колонку created_at (или другие поля типа timestamp)
         for column in columns:
-            self.fields[column] = QtWidgets.QLineEdit(self)
-            self.layout.addRow(f"{column}: ", self.fields[column])
+            if 'created_at' not in column.lower() and 'timestamp' not in column.lower():  # Исключаем created_at и timestamp
+                self.fields[column] = QtWidgets.QLineEdit(self)
+                self.layout.addRow(f"{column}: ", self.fields[column])
 
         self.submit_button = QtWidgets.QPushButton("Добавить", self)
         self.cancel_button = QtWidgets.QPushButton("Отмена", self)
@@ -358,9 +360,21 @@ class AddRecordDialog(QtWidgets.QDialog):
 
     def submit_record(self):
         try:
+            # Получаем значения из всех полей (кроме created_at)
             values = [self.fields[column].text() for column in self.fields]
-            query = f"INSERT INTO {self.table_name} ({', '.join(self.fields.keys())}) VALUES ({', '.join(['%s'] * len(values))})"
+
+            # Формируем запрос для вставки данных, исключая created_at
+            query = f"INSERT INTO {self.table_name} ({', '.join(self.fields.keys())}) " \
+                    f"VALUES ({', '.join(['%s'] * len(values))})"
+
+            # Вставляем запись в таблицу
             self.cursor.execute(query, values)
+
+            # Если есть колонка created_at (timestamp), то она заполняется автоматически
+            # Например, если это поле с автоматическим заполнением через NOW()
+            self.cursor.execute(f"UPDATE {self.table_name} SET created_at = NOW() " 
+                                f"WHERE {list(self.fields.keys())[0]} = %s", (values[0],))
+
             self.accept()
             self.parent().load_table_content()
             self.parent().show_message("Успех", "Запись успешно добавлена!")
