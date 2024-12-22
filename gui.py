@@ -260,7 +260,8 @@ class TableContentWindow(QtWidgets.QMainWindow):
         self.connection = connection
         self.cursor = connection.cursor()
         self.table_name = table_name
-        self.parent_window = parent_window  # Сохраняем ссылку на родительский виджет
+        self.parent_window = parent_window
+        self.primary_key_column = None  # Для хранения имени первичного ключа
         self.initUI()
 
     def initUI(self):
@@ -271,6 +272,21 @@ class TableContentWindow(QtWidgets.QMainWindow):
         self.setCentralWidget(self.central_widget)
         self.layout = QtWidgets.QVBoxLayout(self.central_widget)
 
+        # Виджет поиска
+        self.search_layout = QtWidgets.QHBoxLayout()
+        self.search_field = QtWidgets.QLineEdit(self)
+        self.search_button = QtWidgets.QPushButton("Поиск", self)
+        self.delete_found_button = QtWidgets.QPushButton("Удалить найденные", self)
+        self.search_column_selector = QtWidgets.QComboBox(self)
+
+        self.search_layout.addWidget(QtWidgets.QLabel("Поиск по:"))
+        self.search_layout.addWidget(self.search_column_selector)
+        self.search_layout.addWidget(self.search_field)
+        self.search_layout.addWidget(self.search_button)
+        self.search_layout.addWidget(self.delete_found_button)
+
+        self.layout.addLayout(self.search_layout)
+
         self.table_view = QtWidgets.QTableWidget(self)
         self.layout.addWidget(self.table_view)
 
@@ -279,12 +295,17 @@ class TableContentWindow(QtWidgets.QMainWindow):
         # Кнопки
         self.back_button = QtWidgets.QPushButton("Назад к таблицам")
         self.add_record_button = QtWidgets.QPushButton("Добавить запись")
+        self.delete_record_button = QtWidgets.QPushButton("Удалить запись")
 
         self.layout.addWidget(self.back_button)
         self.layout.addWidget(self.add_record_button)
+        self.layout.addWidget(self.delete_record_button)
 
         self.back_button.clicked.connect(self.back_to_tables)
         self.add_record_button.clicked.connect(self.add_record)
+        self.delete_record_button.clicked.connect(self.delete_record)
+        self.search_button.clicked.connect(self.search_table)
+        self.delete_found_button.clicked.connect(self.delete_found_records)
 
     def load_table_content(self):
         try:
@@ -300,16 +321,96 @@ class TableContentWindow(QtWidgets.QMainWindow):
                 for col_idx, value in enumerate(row):
                     self.table_view.setItem(row_idx, col_idx, QtWidgets.QTableWidgetItem(str(value)))
 
+            # Заполняем выпадающий список колонок для поиска
+            self.search_column_selector.clear()
+            self.search_column_selector.addItems(columns)
+
+            # Получаем первичный ключ таблицы
+            self.cursor.execute(
+                f"""
+                SELECT a.attname
+                FROM   pg_index i
+                JOIN   pg_attribute a ON a.attrelid = i.indrelid
+                                       AND a.attnum = ANY(i.indkey)
+                WHERE  i.indrelid = %s::regclass
+                AND    i.indisprimary;
+                """,
+                (self.table_name,)
+            )
+            result = self.cursor.fetchone()
+            self.primary_key_column = result[0] if result else None
+
         except Exception as e:
             self.show_error(f"Ошибка при загрузке содержимого таблицы: {e}")
+
+    def search_table(self):
+        search_text = self.search_field.text()
+        search_column = self.search_column_selector.currentText()
+
+        if not search_text or not search_column:
+            self.show_error("Введите текст для поиска и выберите колонку.")
+            return
+
+        try:
+            query = f"SELECT * FROM {self.table_name} WHERE {search_column}::text ILIKE %s"
+            self.cursor.execute(query, (f"%{search_text}%",))
+            rows = self.cursor.fetchall()
+
+            self.table_view.setRowCount(len(rows))
+            for row_idx, row in enumerate(rows):
+                for col_idx, value in enumerate(row):
+                    self.table_view.setItem(row_idx, col_idx, QtWidgets.QTableWidgetItem(str(value)))
+        except Exception as e:
+            self.show_error(f"Ошибка при выполнении поиска: {e}")
+
+    def delete_found_records(self):
+        search_text = self.search_field.text()
+        search_column = self.search_column_selector.currentText()
+
+        if not search_text or not search_column:
+            self.show_error("Введите текст для поиска и выберите колонку.")
+            return
+
+        try:
+            query = f"DELETE FROM {self.table_name} WHERE {search_column}::text ILIKE %s"
+            self.cursor.execute(query, (f"%{search_text}%",))
+            self.connection.commit()
+
+            self.load_table_content()
+            self.show_message("Успех", "Найденные записи успешно удалены.")
+        except Exception as e:
+            self.show_error(f"Ошибка при удалении найденных записей: {e}")
+
+    def delete_record(self):
+        selected_items = self.table_view.selectedItems()
+        if not selected_items:
+            self.show_error("Выберите запись для удаления.")
+            return
+
+        if not self.primary_key_column:
+            self.show_error("Не удалось определить первичный ключ для удаления.")
+            return
+
+        try:
+            selected_row = selected_items[0].row()
+            primary_key_value = self.table_view.item(selected_row, 0).text()
+
+            query = f"DELETE FROM {self.table_name} WHERE {self.primary_key_column} = %s"
+            self.cursor.execute(query, (primary_key_value,))
+            self.connection.commit()
+
+            self.load_table_content()
+            self.show_message("Успех", "Запись успешно удалена.")
+        except Exception as e:
+            self.show_error(f"Ошибка при удалении записи: {e}")
 
     def add_record(self):
         dialog = AddRecordDialog(self, self.table_name)
         dialog.exec_()
 
     def back_to_tables(self):
-        self.parent_window.show()  # Показываем основной виджет
-        self.close()  # Закрываем текущий виджет
+        self.parent_window.show()
+        self.close()
 
     def show_message(self, title, message):
         msg_box = QtWidgets.QMessageBox(self)
@@ -324,12 +425,12 @@ class TableContentWindow(QtWidgets.QMainWindow):
         error_box.setText(message)
         error_box.exec_()
 
-
 class AddRecordDialog(QtWidgets.QDialog):
     def __init__(self, parent, table_name):
         super().__init__(parent)
         self.table_name = table_name
         self.cursor = parent.cursor
+        self.connection = parent.connection
         self.initUI()
 
     def initUI(self):
@@ -340,15 +441,17 @@ class AddRecordDialog(QtWidgets.QDialog):
 
         self.fields = {}
 
-        # Получаем описание колонок таблицы
-        self.cursor.execute(f"SELECT * FROM {self.table_name} LIMIT 1;")
-        columns = [desc[0] for desc in self.cursor.description]
+        # Получение колонок, исключая timestamp
+        self.cursor.execute("""
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = %s AND data_type NOT LIKE 'timestamp%%';
+        """, (self.table_name,))
+        columns = [row[0] for row in self.cursor.fetchall()]
 
-        # Выводим поля для ввода, исключая колонку created_at (или другие поля типа timestamp)
         for column in columns:
-            if 'created_at' not in column.lower() and 'timestamp' not in column.lower():  # Исключаем created_at и timestamp
-                self.fields[column] = QtWidgets.QLineEdit(self)
-                self.layout.addRow(f"{column}: ", self.fields[column])
+            self.fields[column] = QtWidgets.QLineEdit(self)
+            self.layout.addRow(f"{column}: ", self.fields[column])
 
         self.submit_button = QtWidgets.QPushButton("Добавить", self)
         self.cancel_button = QtWidgets.QPushButton("Отмена", self)
@@ -360,20 +463,15 @@ class AddRecordDialog(QtWidgets.QDialog):
 
     def submit_record(self):
         try:
-            # Получаем значения из всех полей (кроме created_at)
-            values = [self.fields[column].text() for column in self.fields]
+            column_names = list(self.fields.keys())
+            column_values = [self.fields[col].text() for col in column_names]
 
-            # Формируем запрос для вставки данных, исключая created_at
-            query = f"INSERT INTO {self.table_name} ({', '.join(self.fields.keys())}) " \
-                    f"VALUES ({', '.join(['%s'] * len(values))})"
-
-            # Вставляем запись в таблицу
-            self.cursor.execute(query, values)
-
-            # Если есть колонка created_at (timestamp), то она заполняется автоматически
-            # Например, если это поле с автоматическим заполнением через NOW()
-            self.cursor.execute(f"UPDATE {self.table_name} SET created_at = NOW() " 
-                                f"WHERE {list(self.fields.keys())[0]} = %s", (values[0],))
+            # Формируем SQL-запрос для вызова хранимой процедуры
+            self.cursor.execute(
+                "CALL add_record_to_table(%s, %s, %s)",
+                (self.table_name, column_names, column_values)
+            )
+            self.connection.commit()
 
             self.accept()
             self.parent().load_table_content()
@@ -387,6 +485,7 @@ class AddRecordDialog(QtWidgets.QDialog):
         error_box.setWindowTitle("Ошибка")
         error_box.setText(message)
         error_box.exec_()
+
 
 
 if __name__ == "__main__":
