@@ -15,6 +15,7 @@ CREATE TABLE Courses (
     title VARCHAR(100) NOT NULL,
     instructor_id INTEGER NOT NULL,
     duration INTERVAL NOT NULL,
+    scheduled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (instructor_id) REFERENCES Users(user_id) ON DELETE CASCADE
 );
 
