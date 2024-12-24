@@ -25,7 +25,6 @@ CREATE TABLE Sessions (
     session_id SERIAL PRIMARY KEY,
     tutor_id INT NOT NULL REFERENCES Tutors(tutor_id) ON DELETE CASCADE,
     subject_id INT NOT NULL REFERENCES Subjects(subject_id) ON DELETE CASCADE,
-    student_id INT NOT NULL REFERENCES Users(user_id) ON DELETE CASCADE,
     session_date DATE NOT NULL,
     duration INTEGER NOT NULL
 );
@@ -34,7 +33,7 @@ CREATE TABLE Payments (
     payment_id SERIAL PRIMARY KEY,
     session_id INT NOT NULL REFERENCES Sessions(session_id) ON DELETE CASCADE,
     amount DECIMAL(10, 2) NOT NULL,
-    payment_date TIMESTAMP NOT NULL,
+    payment_date  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     payment_method VARCHAR(15) CHECK (payment_method IN ('credit_card', 'paypal', 'bank_transfer')) NOT NULL
 );
 
@@ -42,7 +41,7 @@ CREATE TABLE Enrollments (
     enrollment_id SERIAL PRIMARY KEY,
     session_id INT NOT NULL REFERENCES Sessions(session_id) ON DELETE CASCADE,
     student_id INT NOT NULL REFERENCES Users(user_id) ON DELETE CASCADE,
-    enrollment_date TIMESTAMP NOT NULL
+    enrollment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE Reviews (
@@ -51,7 +50,7 @@ CREATE TABLE Reviews (
     student_id INT NOT NULL REFERENCES Users(user_id) ON DELETE CASCADE,
     rating INT CHECK (rating BETWEEN 1 AND 5),
     comment TEXT,
-    review_date TIMESTAMP NOT NULL
+    review_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE OR REPLACE FUNCTION update_tutor_rating() RETURNS TRIGGER AS $$
