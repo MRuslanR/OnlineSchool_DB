@@ -68,3 +68,6 @@ CREATE TRIGGER after_review_insert
 AFTER INSERT ON Reviews
 FOR EACH ROW EXECUTE FUNCTION update_tutor_rating();
 
+CREATE INDEX idx_users_role ON Users(role);
+
+CREATE INDEX idx_sessions_subject_id ON Sessions(subject_id);
