@@ -1,66 +1,71 @@
--- Создание таблицы Users
+
 CREATE TABLE Users (
-    user_id SERIAL PRIMARY KEY,
-    name VARCHAR(50) NOT NULL UNIQUE,
-    surname VARCHAR(50) NOT NULL UNIQUE,
+    user_id INTEGER PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    surname VARCHAR(100) NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL,
     password VARCHAR(255) NOT NULL,
-    role VARCHAR(20) NOT NULL CHECK (role IN ('student', 'instructor', 'admin')),
-    email VARCHAR(100) NOT NULL UNIQUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    role VARCHAR(10) CHECK (role IN ('student', 'parent', 'tutor')) NOT NULL
 );
 
--- Создание таблицы Courses
-CREATE TABLE Courses (
-    course_id SERIAL PRIMARY KEY,
-    title VARCHAR(100) NOT NULL,
-    instructor_id INTEGER NOT NULL,
-    duration INTERVAL NOT NULL,
-    scheduled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (instructor_id) REFERENCES Users(user_id) ON DELETE CASCADE
+CREATE TABLE Tutors (
+    tutor_id INTEGER PRIMARY KEY,
+    user_id INT UNIQUE NOT NULL REFERENCES Users(user_id) ON DELETE CASCADE,
+    rating FLOAT DEFAULT 0,
+    bio TEXT
 );
 
--- Создание таблицы Enrollments
-CREATE TABLE Enrollments (
-    enrollment_id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL,
-    course_id INTEGER NOT NULL,
-    enrolled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
-    FOREIGN KEY (course_id) REFERENCES Courses(course_id) ON DELETE CASCADE
+CREATE TABLE Subjects (
+    subject_id SERIAL PRIMARY KEY,
+    title VARCHAR(100) UNIQUE NOT NULL,
+    level VARCHAR(15) CHECK (level IN ('beginner', 'intermediate', 'advanced')) NOT NULL
 );
 
--- Создание таблицы Payments
+CREATE TABLE Sessions (
+    session_id SERIAL PRIMARY KEY,
+    tutor_id INT NOT NULL REFERENCES Tutors(tutor_id) ON DELETE CASCADE,
+    subject_id INT NOT NULL REFERENCES Subjects(subject_id) ON DELETE CASCADE,
+    student_id INT NOT NULL REFERENCES Users(user_id) ON DELETE CASCADE,
+    session_date DATE NOT NULL,
+    duration INTEGER NOT NULL
+);
+
 CREATE TABLE Payments (
     payment_id SERIAL PRIMARY KEY,
-    enrollment_id INTEGER NOT NULL,
-    amount NUMERIC(10, 2) NOT NULL CHECK (amount > 0),
-    payment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    total_amount NUMERIC(10, 2) DEFAULT 0,
-    FOREIGN KEY (enrollment_id) REFERENCES Enrollments(enrollment_id) ON DELETE CASCADE
+    session_id INT NOT NULL REFERENCES Sessions(session_id) ON DELETE CASCADE,
+    amount DECIMAL(10, 2) NOT NULL,
+    payment_date TIMESTAMP NOT NULL,
+    payment_method VARCHAR(15) CHECK (payment_method IN ('credit_card', 'paypal', 'bank_transfer')) NOT NULL
 );
 
--- Создание индекса на поле title в таблице Courses
-CREATE INDEX idx_courses_title ON Courses(title);
+CREATE TABLE Enrollments (
+    enrollment_id SERIAL PRIMARY KEY,
+    session_id INT NOT NULL REFERENCES Sessions(session_id) ON DELETE CASCADE,
+    student_id INT NOT NULL REFERENCES Users(user_id) ON DELETE CASCADE,
+    enrollment_date TIMESTAMP NOT NULL
+);
 
--- Функция для обновления total_amount
-CREATE OR REPLACE FUNCTION update_total_amount()
-RETURNS TRIGGER AS $$
+CREATE TABLE Reviews (
+    review_id SERIAL PRIMARY KEY,
+    session_id INT NOT NULL REFERENCES Sessions(session_id) ON DELETE CASCADE,
+    student_id INT NOT NULL REFERENCES Users(user_id) ON DELETE CASCADE,
+    rating INT CHECK (rating BETWEEN 1 AND 5),
+    comment TEXT,
+    review_date TIMESTAMP NOT NULL
+);
+
+CREATE OR REPLACE FUNCTION update_tutor_rating() RETURNS TRIGGER AS $$
 BEGIN
-    IF (TG_OP = 'INSERT' OR TG_OP = 'UPDATE' OR TG_OP = 'DELETE') THEN
-        UPDATE Payments
-        SET total_amount = (
-            SELECT SUM(amount)
-            FROM Payments
-            WHERE enrollment_id = OLD.enrollment_id
-        )
-        WHERE enrollment_id = OLD.enrollment_id;
-    END IF;
-    RETURN NULL;
+    UPDATE Tutors
+    SET rating = (SELECT AVG(rating) FROM Reviews WHERE session_id IN
+    (SELECT session_id FROM Sessions  WHERE tutor_id =
+    (SELECT tutor_id FROM Sessions  WHERE session_id = NEW.session_id)))
+    WHERE tutor_id = (SELECT tutor_id FROM Sessions  WHERE session_id = NEW.session_id);
+    RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
--- Создание триггера после вставки, обновления или удаления в таблице Payments
-CREATE TRIGGER trg_update_total_amount
-AFTER INSERT OR UPDATE OR DELETE ON Payments
-FOR EACH ROW
-EXECUTE FUNCTION update_total_amount();
+CREATE TRIGGER after_review_insert
+AFTER INSERT ON Reviews
+FOR EACH ROW EXECUTE FUNCTION update_tutor_rating();
+
